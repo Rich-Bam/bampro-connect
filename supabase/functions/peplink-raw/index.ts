@@ -4,6 +4,20 @@ const DEVICE_ID = 3;
 const TOKEN_URL = "https://api.ic.peplink.com/api/oauth2/token";
 const API_BASE = "https://api.ic.peplink.com/rest";
 
+const MASKED_FIELDS = new Set([
+  "sn",
+  "lan_mac",
+  "wtp_ip",
+  "ddns_name",
+  "site_id",
+  "imei",
+  "iccid",
+  "imsi",
+  "meid_hex",
+  "meid_dec",
+  "esn",
+]);
+
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -29,46 +43,19 @@ async function safeJson(response: Response) {
   }
 }
 
-function pickLatestTimestamp(...values: Array<unknown>) {
-  const parsed = values
-    .filter((value): value is string => typeof value === "string" && value.trim() !== "")
-    .map((value) => ({ value, time: Date.parse(value) }))
-    .filter((item) => !Number.isNaN(item.time));
-
-  if (!parsed.length) {
-    return null;
+function maskValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(maskValue);
   }
-  parsed.sort((a, b) => b.time - a.time);
-  return parsed[0].value;
-}
-
-function getGpsTimestamp(device: Record<string, unknown>) {
-  const gpsCandidates = [
-    device?.gps_updated_at,
-    device?.gps_update_time,
-    device?.gps_time,
-    device?.last_gps_time,
-    device?.gps_last_updated,
-    device?.gps_location_time,
-  ];
-
-  const starlink = (device as { starlink_status?: Array<Record<string, unknown>> })
-    ?.starlink_status?.[0];
-  const gpsLocation = starlink?.gpsLocation as Record<string, unknown> | undefined;
-  const gpsLocationCandidates = gpsLocation
-    ? [gpsLocation.timestamp, gpsLocation.time, gpsLocation.ts]
-    : [];
-
-  const interfaces = (device as { interfaces?: Array<Record<string, unknown>> })?.interfaces;
-  const interfaceUpdates = Array.isArray(interfaces)
-    ? interfaces.map((item: Record<string, unknown>) => item.updated_at)
-    : [];
-
-  return pickLatestTimestamp(
-    ...gpsCandidates,
-    ...gpsLocationCandidates,
-    ...interfaceUpdates,
-  );
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const masked: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(obj)) {
+      masked[key] = MASKED_FIELDS.has(key) ? "***" : maskValue(val);
+    }
+    return masked;
+  }
+  return value;
 }
 
 Deno.serve(async (req) => {
@@ -140,34 +127,7 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Device not found." }, 404);
     }
 
-    const gpsLocation = device?.starlink_status?.[0]?.gpsLocation?.lla;
-    const lat = typeof gpsLocation?.lat === "number" ? gpsLocation.lat : null;
-    const lng = typeof gpsLocation?.lon === "number" ? gpsLocation.lon : null;
-    const locationAvailable = lat !== null && lng !== null;
-    const fetchedAt = new Date().toISOString();
-    const gpsReportedAt = getGpsTimestamp(device);
-    const deviceUpdatedAt = pickLatestTimestamp(
-      device?.last_ic2_online_time,
-      device?.last_online,
-      device?.fw_pending_group_time,
-    );
-    const updatedAt = gpsReportedAt ?? deviceUpdatedAt ?? fetchedAt;
-    const timeSource = gpsReportedAt
-      ? "gps_or_interface_updated_at"
-      : deviceUpdatedAt
-        ? "device_updated_at"
-        : "fetched_at";
-
-    return jsonResponse({
-      device_id: DEVICE_ID,
-      device_name: device?.name ?? null,
-      lat,
-      lng,
-      updated_at: updatedAt,
-      time_source: timeSource,
-      fetched_at: fetchedAt,
-      location_available: locationAvailable,
-    });
+    return jsonResponse({ device: maskValue(device) });
   } catch (error) {
     return jsonResponse({ error: "Unexpected error.", details: String(error) }, 500);
   }
