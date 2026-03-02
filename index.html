@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Peplink GPS Map</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        background: #0b0f19;
+        color: #e5e7eb;
+      }
+
+      #map {
+        height: 100%;
+        width: 100%;
+      }
+
+      .panel {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        background: rgba(17, 24, 39, 0.95);
+        padding: 12px 14px;
+        border-radius: 10px;
+        z-index: 1000;
+        font-size: 14px;
+        min-width: 240px;
+      }
+
+      .panel h1 {
+        font-size: 16px;
+        margin: 0 0 6px;
+      }
+
+      .status {
+        color: #9ca3af;
+        margin: 6px 0 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="panel">
+      <h1>Peplink GPS Location</h1>
+      <div id="device-name">Device: loading…</div>
+      <div id="coords">Location: —</div>
+      <div id="updated">Updated: —</div>
+      <div id="status" class="status">Fetching GPS…</div>
+    </div>
+    <div id="map"></div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script>
+      const map = L.map("map").setView([20, 0], 2);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        attribution: "&copy; OpenStreetMap contributors",
+      }).addTo(map);
+
+      const statusEl = document.getElementById("status");
+      const deviceNameEl = document.getElementById("device-name");
+      const coordsEl = document.getElementById("coords");
+      const updatedEl = document.getElementById("updated");
+
+      let marker = null;
+
+      async function fetchLocation() {
+        try {
+          const response = await fetch(
+            "https://bbivyjrlcqjfkabhjjap.functions.supabase.co/peplink-location"
+          );
+          if (!response.ok) {
+            throw new Error(`Request failed (${response.status})`);
+          }
+          const data = await response.json();
+
+          deviceNameEl.textContent = `Device: ${data.device_name || data.device_id}`;
+          updatedEl.textContent = `Updated: ${data.updated_at || "unknown"}`;
+
+          if (!data.location_available || data.lat == null || data.lng == null) {
+            statusEl.textContent = "No GPS fix available yet.";
+            coordsEl.textContent = "Location: —";
+            return;
+          }
+
+          const lat = Number(data.lat);
+          const lng = Number(data.lng);
+          coordsEl.textContent = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          statusEl.textContent = "Live GPS active.";
+
+          if (!marker) {
+            marker = L.marker([lat, lng]).addTo(map);
+            map.setView([lat, lng], 10);
+          } else {
+            marker.setLatLng([lat, lng]);
+          }
+        } catch (error) {
+          statusEl.textContent = "Failed to fetch GPS data.";
+        }
+      }
+
+      fetchLocation();
+      setInterval(fetchLocation, 20000);
+    </script>
+  </body>
+</html>
