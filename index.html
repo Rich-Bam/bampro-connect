@@ -233,6 +233,7 @@
 
       let marker = null;
       let trackLine = null;
+      let hasFitTrack = false;
       const trackPoints = [];
       const trackLimit = 5000;
       const PASSWORD = "Zwerver2";
@@ -243,6 +244,20 @@
         const deg = Math.floor(abs);
         const min = (abs - deg) * 60;
         return `${deg}° ${min.toFixed(3)}' ${dir}`;
+      }
+
+      function parseCoord(value) {
+        if (typeof value === "number" && !Number.isNaN(value)) {
+          return value;
+        }
+        if (typeof value === "string" && value.trim() !== "") {
+          const normalized = value.replace(",", ".");
+          const parsed = Number(normalized);
+          if (!Number.isNaN(parsed)) {
+            return parsed;
+          }
+        }
+        return null;
       }
 
       function formatUpdatedAt(isoString) {
@@ -355,14 +370,16 @@
           }
 
           if (Array.isArray(data.track) && data.track.length > 0) {
-            trackPoints.length = 0;
+            const newTrackPoints = [];
             for (const point of data.track.slice(-trackLimit)) {
-              const trackLat = typeof point.lat === "number" ? point.lat : Number(point.lat);
-              const trackLng = typeof point.lng === "number" ? point.lng : Number(point.lng);
-              if (!Number.isNaN(trackLat) && !Number.isNaN(trackLng)) {
-                trackPoints.push([trackLat, trackLng]);
+              const trackLat = parseCoord(point.lat);
+              const trackLng = parseCoord(point.lng ?? point.lon);
+              if (trackLat !== null && trackLng !== null) {
+                newTrackPoints.push([trackLat, trackLng]);
               }
             }
+            trackPoints.length = 0;
+            trackPoints.push(...newTrackPoints);
           } else {
             const lastPoint = trackPoints[trackPoints.length - 1];
             if (!lastPoint || lastPoint[0] !== lat || lastPoint[1] !== lng) {
@@ -381,6 +398,10 @@
                 weight: 3,
                 opacity: 0.85,
               }).addTo(map);
+              if (!hasFitTrack) {
+                map.fitBounds(trackLine.getBounds(), { padding: [20, 20] });
+                hasFitTrack = true;
+              }
             } else {
               trackLine.setLatLngs(trackPoints);
             }
