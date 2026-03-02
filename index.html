@@ -300,9 +300,6 @@
 
       async function fetchLocation() {
         try {
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/7ddca9c4-ad95-486b-8205-2e47fab0484f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H1',location:'index.html:fetchLocation:start',message:'fetchLocation called',data:{hasTrackLine:!!trackLine,trackPointsLen:trackPoints.length},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
           const response = await fetch(
             `https://bbivyjrlcqjfkabhjjap.functions.supabase.co/peplink-location?t=${Date.now()}`,
             { cache: "no-store" }
@@ -311,9 +308,6 @@
             throw new Error(`Request failed (${response.status})`);
           }
           const data = await response.json();
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/7ddca9c4-ad95-486b-8205-2e47fab0484f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H1',location:'index.html:fetchLocation:data',message:'response data summary',data:{trackLen:Array.isArray(data.track)?data.track.length:null,hasLocation:data.location_available,lat:data.lat,lng:data.lng},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
 
           deviceNameEl.textContent = `Device: ${data.device_name || data.device_id}`;
           const updatedInfo = formatUpdatedAt(data.updated_at);
@@ -339,12 +333,22 @@
           const dmmLat = toDmm(lat, true);
           const dmmLng = toDmm(lng, false);
           coordsEl.innerHTML = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}<div class="dmm">DMM: ${dmmLat}, ${dmmLng}</div><div class="badge">DMM format</div>`;
-          if (typeof data.speed_kmh === "number" && !Number.isNaN(data.speed_kmh)) {
+          const speedKmh = typeof data.speed_kmh === "number"
+            ? data.speed_kmh
+            : typeof data.speed_kmh === "string" && data.speed_kmh.trim() !== ""
+              ? Number(data.speed_kmh)
+              : null;
+          const speedKn = typeof data.speed_kn === "number"
+            ? data.speed_kn
+            : typeof data.speed_kn === "string" && data.speed_kn.trim() !== ""
+              ? Number(data.speed_kn)
+              : null;
+          if (typeof speedKmh === "number" && !Number.isNaN(speedKmh)) {
             const knots =
-              typeof data.speed_kn === "number" && !Number.isNaN(data.speed_kn)
-                ? data.speed_kn
-                : data.speed_kmh / 1.852;
-            speedEl.textContent = `Speed: ${data.speed_kmh.toFixed(1)} km/h (${knots.toFixed(1)} kn)`;
+              typeof speedKn === "number" && !Number.isNaN(speedKn)
+                ? speedKn
+                : speedKmh / 1.852;
+            speedEl.textContent = `Speed: ${speedKmh.toFixed(1)} km/h (${knots.toFixed(1)} kn)`;
           } else {
             speedEl.textContent = "Speed: —";
           }
@@ -386,17 +390,11 @@
             }
             trackPoints.length = 0;
             trackPoints.push(...newTrackPoints);
-            // #region agent log
-            fetch('http://127.0.0.1:7244/ingest/7ddca9c4-ad95-486b-8205-2e47fab0484f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H2',location:'index.html:track:parsed',message:'parsed track points',data:{parsedLen:trackPoints.length,first:trackPoints[0],last:trackPoints[trackPoints.length-1]},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
           } else {
             const lastPoint = trackPoints[trackPoints.length - 1];
             if (!lastPoint || lastPoint[0] !== lat || lastPoint[1] !== lng) {
               trackPoints.push([lat, lng]);
             }
-            // #region agent log
-            fetch('http://127.0.0.1:7244/ingest/7ddca9c4-ad95-486b-8205-2e47fab0484f',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId:'pre-fix',hypothesisId:'H2',location:'index.html:track:fallback',message:'track fallback to current point',data:{trackPointsLen:trackPoints.length,lat,lng},timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
           }
 
           if (trackPoints.length > trackLimit) {

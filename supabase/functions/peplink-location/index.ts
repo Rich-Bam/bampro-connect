@@ -181,8 +181,24 @@ Deno.serve(async (req) => {
     if (supabaseUrl && serviceRoleKey) {
       const supabase = createClient(supabaseUrl, serviceRoleKey);
 
+      const { data: lastPoint } = await supabase
+        .from("gps_points")
+        .select("lat,lng,recorded_at")
+        .eq("device_id", DEVICE_ID)
+        .order("recorded_at", { ascending: false })
+        .limit(1);
+      const fallback = lastPoint?.[0];
+
       if (starlinkLocationAvailable && lat !== null && lng !== null) {
-        const recordedAt = updatedAt ?? fetchedAt;
+        let recordedAt = updatedAt ?? fetchedAt;
+        if (fallback?.recorded_at) {
+          const lastTime = Date.parse(fallback.recorded_at);
+          const nextTime = Date.parse(recordedAt);
+          if (!Number.isNaN(lastTime) && !Number.isNaN(nextTime) && nextTime <= lastTime) {
+            recordedAt = fetchedAt;
+            timeSource = gpsReportedAt ? "starlink_gps_stale" : "fetched_at";
+          }
+        }
         await supabase.from("gps_points").upsert(
           {
             device_id: DEVICE_ID,
@@ -195,21 +211,12 @@ Deno.serve(async (req) => {
           },
           { onConflict: "device_id,recorded_at" },
         );
-      } else {
-        const { data: lastPoint } = await supabase
-          .from("gps_points")
-          .select("lat,lng,recorded_at")
-          .eq("device_id", DEVICE_ID)
-          .order("recorded_at", { ascending: false })
-          .limit(1);
-        const fallback = lastPoint?.[0];
-        if (fallback) {
-          lat = fallback.lat;
-          lng = fallback.lng;
-          updatedAt = fallback.recorded_at;
-          timeSource = "gps_points_fallback";
-          locationFallback = true;
-        }
+      } else if (fallback) {
+        lat = fallback.lat;
+        lng = fallback.lng;
+        updatedAt = fallback.recorded_at;
+        timeSource = "gps_points_fallback";
+        locationFallback = true;
       }
 
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
