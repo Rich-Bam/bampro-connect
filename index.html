@@ -77,6 +77,14 @@
 
       let marker = null;
 
+      function toDmm(dec, isLat) {
+        const dir = isLat ? (dec >= 0 ? "N" : "S") : (dec >= 0 ? "E" : "W");
+        const abs = Math.abs(dec);
+        const deg = Math.floor(abs);
+        const min = (abs - deg) * 60;
+        return `${deg}° ${min.toFixed(3)}' ${dir}`;
+      }
+
       async function fetchLocation() {
         try {
           const response = await fetch(
@@ -98,7 +106,9 @@
 
           const lat = Number(data.lat);
           const lng = Number(data.lng);
-          coordsEl.textContent = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          const dmmLat = toDmm(lat, true);
+          const dmmLng = toDmm(lng, false);
+          coordsEl.innerHTML = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}<br />DMM: ${dmmLat}, ${dmmLng}`;
           statusEl.textContent = "Live GPS active.";
 
           if (!marker) {
