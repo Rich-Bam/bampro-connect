@@ -44,33 +44,11 @@ function pickLatestTimestamp(...values: Array<unknown>) {
   return parsed[0].value;
 }
 
-function getGpsTimestamp(device: Record<string, unknown>) {
-  const gpsCandidates = [
-    device?.gps_updated_at,
-    device?.gps_update_time,
-    device?.gps_time,
-    device?.last_gps_time,
-    device?.gps_last_updated,
-    device?.gps_location_time,
-  ];
-
+function getStarlinkGpsTimestamp(device: Record<string, unknown>) {
   const starlink = (device as { starlink_status?: Array<Record<string, unknown>> })
     ?.starlink_status?.[0];
   const gpsLocation = starlink?.gpsLocation as Record<string, unknown> | undefined;
-  const gpsLocationCandidates = gpsLocation
-    ? [gpsLocation.timestamp, gpsLocation.time, gpsLocation.ts]
-    : [];
-
-  const interfaces = (device as { interfaces?: Array<Record<string, unknown>> })?.interfaces;
-  const interfaceUpdates = Array.isArray(interfaces)
-    ? interfaces.map((item: Record<string, unknown>) => item.updated_at)
-    : [];
-
-  return pickLatestTimestamp(
-    ...gpsCandidates,
-    ...gpsLocationCandidates,
-    ...interfaceUpdates,
-  );
+  return pickLatestTimestamp(gpsLocation?.timestamp, gpsLocation?.time, gpsLocation?.ts);
 }
 
 function getSpeedKmh(device: Record<string, unknown>) {
@@ -178,44 +156,61 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Device not found." }, 404);
     }
 
-    const gpsLocation = device?.starlink_status?.[0]?.gpsLocation?.lla;
-    const lat = typeof gpsLocation?.lat === "number" ? gpsLocation.lat : null;
-    const lng = typeof gpsLocation?.lon === "number" ? gpsLocation.lon : null;
-    const locationAvailable = lat !== null && lng !== null;
+    const starlinkStatus = device?.starlink_status?.[0];
+    const gpsLocation = starlinkStatus?.gpsLocation as Record<string, unknown> | undefined;
+    const gpsLla = gpsLocation?.lla as Record<string, unknown> | undefined;
+    const starlinkLat = typeof gpsLla?.lat === "number" ? gpsLla.lat : null;
+    const starlinkLng = typeof gpsLla?.lon === "number" ? gpsLla.lon : null;
+    const starlinkLocationAvailable = starlinkLat !== null && starlinkLng !== null;
+    let lat = starlinkLat;
+    let lng = starlinkLng;
+    let locationFallback = false;
     const fetchedAt = new Date().toISOString();
-    const gpsReportedAt = getGpsTimestamp(device);
-    const deviceUpdatedAt = pickLatestTimestamp(
-      device?.last_ic2_online_time,
-      device?.last_online,
-      device?.fw_pending_group_time,
-    );
-    const updatedAt = gpsReportedAt ?? deviceUpdatedAt ?? fetchedAt;
-    const timeSource = gpsReportedAt
-      ? "gps_or_interface_updated_at"
-      : deviceUpdatedAt
-        ? "device_updated_at"
+    const gpsReportedAt = getStarlinkGpsTimestamp(device);
+    let updatedAt = gpsReportedAt ?? fetchedAt;
+    let timeSource = gpsReportedAt
+      ? "starlink_gps"
+      : starlinkLocationAvailable
+        ? "starlink_gps_no_time"
         : "fetched_at";
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     let track: Array<{ lat: number; lng: number; recorded_at: string }> = [];
 
-    if (supabaseUrl && serviceRoleKey && locationAvailable) {
+    if (supabaseUrl && serviceRoleKey) {
       const supabase = createClient(supabaseUrl, serviceRoleKey);
-      const recordedAt = updatedAt ?? fetchedAt;
 
-      await supabase.from("gps_points").upsert(
-        {
-          device_id: DEVICE_ID,
-          device_name: device?.name ?? null,
-          lat,
-          lng,
-          recorded_at: recordedAt,
-          time_source: timeSource,
-          fetched_at: fetchedAt,
-        },
-        { onConflict: "device_id,recorded_at" },
-      );
+      if (starlinkLocationAvailable && lat !== null && lng !== null) {
+        const recordedAt = updatedAt ?? fetchedAt;
+        await supabase.from("gps_points").upsert(
+          {
+            device_id: DEVICE_ID,
+            device_name: device?.name ?? null,
+            lat,
+            lng,
+            recorded_at: recordedAt,
+            time_source: timeSource,
+            fetched_at: fetchedAt,
+          },
+          { onConflict: "device_id,recorded_at" },
+        );
+      } else {
+        const { data: lastPoint } = await supabase
+          .from("gps_points")
+          .select("lat,lng,recorded_at")
+          .eq("device_id", DEVICE_ID)
+          .order("recorded_at", { ascending: false })
+          .limit(1);
+        const fallback = lastPoint?.[0];
+        if (fallback) {
+          lat = fallback.lat;
+          lng = fallback.lng;
+          updatedAt = fallback.recorded_at;
+          timeSource = "gps_points_fallback";
+          locationFallback = true;
+        }
+      }
 
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
@@ -257,6 +252,8 @@ Deno.serve(async (req) => {
       type: iface.type ?? null,
     }));
 
+    const locationAvailable = lat !== null && lng !== null;
+
     return jsonResponse({
       device_id: DEVICE_ID,
       device_name: device?.name ?? null,
@@ -266,6 +263,7 @@ Deno.serve(async (req) => {
       time_source: timeSource,
       fetched_at: fetchedAt,
       location_available: locationAvailable,
+      location_fallback: locationFallback,
       speed_kmh: speedKmh ?? computedSpeedKmh,
       speed_kn: speedKmh
         ? speedKmh / 1.852

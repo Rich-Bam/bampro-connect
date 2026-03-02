@@ -37,6 +37,11 @@
         min-width: 240px;
       }
 
+      .panel.is-stale {
+        border: 1px solid rgba(248, 113, 113, 0.6);
+        background: rgba(127, 29, 29, 0.35);
+      }
+
       .panel-right {
         position: absolute;
         top: 16px;
@@ -113,6 +118,11 @@
         font-weight: 600;
       }
 
+      .badge-stale {
+        background: rgba(248, 113, 113, 0.2);
+        color: #fca5a5;
+      }
+
       .auth-overlay {
         position: fixed;
         inset: 0;
@@ -187,6 +197,7 @@
       <div id="coords">Location: —</div>
       <div id="speed">Speed: —</div>
       <div id="updated">Updated: —</div>
+      <div id="stale-badge" class="badge badge-stale" style="display: none;">STALE &gt; 20s</div>
       <div id="status" class="status">Fetching GPS…</div>
     </div>
     <div class="panel-right">
@@ -212,6 +223,8 @@
       const coordsEl = document.getElementById("coords");
       const speedEl = document.getElementById("speed");
       const updatedEl = document.getElementById("updated");
+      const staleBadgeEl = document.getElementById("stale-badge");
+      const panelEl = document.querySelector(".panel");
       const authOverlay = document.getElementById("auth-overlay");
       const authPasswordInput = document.getElementById("auth-password");
       const authSubmit = document.getElementById("auth-submit");
@@ -234,13 +247,13 @@
 
       function formatUpdatedAt(isoString) {
         if (!isoString) {
-          return { label: "Updated: unknown", age: "" };
+          return { label: "Updated: unknown", age: "", ageSeconds: null };
         }
         const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(isoString);
         const normalized = hasTz ? isoString : `${isoString}Z`;
         const parsed = new Date(normalized);
         if (Number.isNaN(parsed.getTime())) {
-          return { label: `Updated: ${isoString}`, age: "" };
+          return { label: `Updated: ${isoString}`, age: "", ageSeconds: null };
         }
         const now = new Date();
         const diffMs = now.getTime() - parsed.getTime();
@@ -266,6 +279,7 @@
         return {
           label: `Updated (Amsterdam): ${amsterdam}`,
           age: `Last GPS age: ${age} ago`,
+          ageSeconds: diffSec,
         };
       }
 
@@ -283,10 +297,17 @@
           deviceNameEl.textContent = `Device: ${data.device_name || data.device_id}`;
           const updatedInfo = formatUpdatedAt(data.updated_at);
           const sourceLabel = data.time_source ? `Source: ${data.time_source}` : "";
+          const isStale = typeof updatedInfo.ageSeconds === "number"
+            ? updatedInfo.ageSeconds > 20
+            : false;
+          if (panelEl) {
+            panelEl.classList.toggle("is-stale", isStale);
+          }
+          staleBadgeEl.style.display = isStale ? "inline-block" : "none";
           updatedEl.innerHTML = `${updatedInfo.label}${updatedInfo.age ? `<br />${updatedInfo.age}` : ""}${sourceLabel ? `<br />${sourceLabel}` : ""}`;
 
           if (!data.location_available || data.lat == null || data.lng == null) {
-            statusEl.textContent = "No GPS fix available yet.";
+            statusEl.textContent = "No Starlink GPS fix available yet.";
             coordsEl.textContent = "Location: —";
             speedEl.textContent = "Speed: —";
             return;
@@ -306,7 +327,10 @@
           } else {
             speedEl.textContent = "Speed: —";
           }
-          statusEl.textContent = "Live GPS active.";
+          const fallbackNote = data.location_fallback ? " Using last known Starlink GPS." : "";
+          statusEl.textContent = isStale
+            ? `GPS is stale (older than 20s).${fallbackNote}`
+            : `Live GPS active.${fallbackNote}`;
 
           if (Array.isArray(data.wan_status)) {
             wanListEl.innerHTML = "";
