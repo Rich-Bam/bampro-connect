@@ -148,7 +148,7 @@
       let marker = null;
       let trackLine = null;
       const trackPoints = [];
-      const trackLimit = 500;
+      const trackLimit = 5000;
       const PASSWORD = "Zwerver2";
 
       function toDmm(dec, isLat) {
@@ -232,21 +232,32 @@
             marker.setLatLng([lat, lng]);
           }
 
-          const lastPoint = trackPoints[trackPoints.length - 1];
-          if (!lastPoint || lastPoint[0] !== lat || lastPoint[1] !== lng) {
-            trackPoints.push([lat, lng]);
-            if (trackPoints.length > trackLimit) {
-              trackPoints.shift();
+          if (Array.isArray(data.track) && data.track.length > 0) {
+            trackPoints.length = 0;
+            for (const point of data.track.slice(-trackLimit)) {
+              if (typeof point.lat === "number" && typeof point.lng === "number") {
+                trackPoints.push([point.lat, point.lng]);
+              }
             }
-            if (!trackLine) {
-              trackLine = L.polyline(trackPoints, {
-                color: "#1d4ed8",
-                weight: 3,
-                opacity: 0.85,
-              }).addTo(map);
-            } else {
-              trackLine.setLatLngs(trackPoints);
+          } else {
+            const lastPoint = trackPoints[trackPoints.length - 1];
+            if (!lastPoint || lastPoint[0] !== lat || lastPoint[1] !== lng) {
+              trackPoints.push([lat, lng]);
             }
+          }
+
+          if (trackPoints.length > trackLimit) {
+            trackPoints.splice(0, trackPoints.length - trackLimit);
+          }
+
+          if (!trackLine) {
+            trackLine = L.polyline(trackPoints, {
+              color: "#1d4ed8",
+              weight: 3,
+              opacity: 0.85,
+            }).addTo(map);
+          } else {
+            trackLine.setLatLngs(trackPoints);
           }
         } catch (error) {
           statusEl.textContent = "Failed to fetch GPS data.";
@@ -256,8 +267,8 @@
       function unlockMap() {
         sessionStorage.setItem("gps_auth", "true");
         authOverlay.style.display = "none";
-        fetchLocation();
-        setInterval(fetchLocation, 20000);
+      fetchLocation();
+      setInterval(fetchLocation, 10000);
       }
 
       authSubmit.addEventListener("click", () => {
@@ -279,7 +290,7 @@
       if (sessionStorage.getItem("gps_auth") === "true") {
         authOverlay.style.display = "none";
         fetchLocation();
-        setInterval(fetchLocation, 20000);
+        setInterval(fetchLocation, 10000);
       }
     </script>
   </body>

@@ -4,6 +4,8 @@ const DEVICE_ID = 3;
 const TOKEN_URL = "https://api.ic.peplink.com/api/oauth2/token";
 const API_BASE = "https://api.ic.peplink.com/rest";
 
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -158,6 +160,42 @@ Deno.serve(async (req) => {
         ? "device_updated_at"
         : "fetched_at";
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    let track: Array<{ lat: number; lng: number; recorded_at: string }> = [];
+
+    if (supabaseUrl && serviceRoleKey && locationAvailable) {
+      const supabase = createClient(supabaseUrl, serviceRoleKey);
+      const recordedAt = updatedAt ?? fetchedAt;
+
+      await supabase.from("gps_points").upsert(
+        {
+          device_id: DEVICE_ID,
+          device_name: device?.name ?? null,
+          lat,
+          lng,
+          recorded_at: recordedAt,
+          time_source: timeSource,
+          fetched_at: fetchedAt,
+        },
+        { onConflict: "device_id,recorded_at" },
+      );
+
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from("gps_points")
+        .select("lat,lng,recorded_at")
+        .eq("device_id", DEVICE_ID)
+        .gte("recorded_at", since)
+        .order("recorded_at", { ascending: true });
+
+      track = (data ?? []).map((row) => ({
+        lat: row.lat,
+        lng: row.lng,
+        recorded_at: row.recorded_at,
+      }));
+    }
+
     return jsonResponse({
       device_id: DEVICE_ID,
       device_name: device?.name ?? null,
@@ -167,6 +205,7 @@ Deno.serve(async (req) => {
       time_source: timeSource,
       fetched_at: fetchedAt,
       location_available: locationAvailable,
+      track,
     });
   } catch (error) {
     return jsonResponse({ error: "Unexpected error.", details: String(error) }, 500);
