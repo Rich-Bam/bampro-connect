@@ -28,7 +28,7 @@
       .panel {
         position: absolute;
         top: 16px;
-        left: 16px;
+        left: 64px;
         background: rgba(17, 24, 39, 0.95);
         padding: 12px 14px;
         border-radius: 10px;
@@ -45,6 +45,24 @@
       .status {
         color: #9ca3af;
         margin: 6px 0 0;
+      }
+
+      .dmm {
+        margin-top: 6px;
+        font-size: 16px;
+        font-weight: 700;
+        color: #f8fafc;
+      }
+
+      .badge {
+        display: inline-block;
+        margin-top: 6px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(59, 130, 246, 0.2);
+        color: #93c5fd;
+        font-size: 12px;
+        font-weight: 600;
       }
 
       .auth-overlay {
@@ -119,6 +137,7 @@
       <h1>Peplink GPS Location</h1>
       <div id="device-name">Device: loading…</div>
       <div id="coords">Location: —</div>
+      <div id="speed">Speed: —</div>
       <div id="updated">Updated: —</div>
       <div id="status" class="status">Fetching GPS…</div>
     </div>
@@ -139,6 +158,7 @@
       const statusEl = document.getElementById("status");
       const deviceNameEl = document.getElementById("device-name");
       const coordsEl = document.getElementById("coords");
+      const speedEl = document.getElementById("speed");
       const updatedEl = document.getElementById("updated");
       const authOverlay = document.getElementById("auth-overlay");
       const authPasswordInput = document.getElementById("auth-password");
@@ -215,6 +235,7 @@
           if (!data.location_available || data.lat == null || data.lng == null) {
             statusEl.textContent = "No GPS fix available yet.";
             coordsEl.textContent = "Location: —";
+            speedEl.textContent = "Speed: —";
             return;
           }
 
@@ -222,7 +243,13 @@
           const lng = Number(data.lng);
           const dmmLat = toDmm(lat, true);
           const dmmLng = toDmm(lng, false);
-          coordsEl.innerHTML = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}<br />DMM: ${dmmLat}, ${dmmLng}`;
+          coordsEl.innerHTML = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}<div class="dmm">DMM: ${dmmLat}, ${dmmLng}</div><div class="badge">DMM format</div>`;
+          if (typeof data.speed_kmh === "number" && !Number.isNaN(data.speed_kmh)) {
+            const knots = data.speed_kmh / 1.852;
+            speedEl.textContent = `Speed: ${data.speed_kmh.toFixed(1)} km/h (${knots.toFixed(1)} kn)`;
+          } else {
+            speedEl.textContent = "Speed: —";
+          }
           statusEl.textContent = "Live GPS active.";
 
           if (!marker) {

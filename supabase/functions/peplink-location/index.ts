@@ -73,6 +73,31 @@ function getGpsTimestamp(device: Record<string, unknown>) {
   );
 }
 
+function getSpeedKmh(device: Record<string, unknown>) {
+  const candidates = [
+    device?.speed,
+    device?.speed_kmh,
+    device?.gps_speed,
+    device?.gps?.speed,
+    device?.gps?.speed_kmh,
+    device?.gps?.speedKmh,
+    device?.gpsLocation?.speed,
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === "number" && !Number.isNaN(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      if (!Number.isNaN(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -196,6 +221,8 @@ Deno.serve(async (req) => {
       }));
     }
 
+    const speedKmh = getSpeedKmh(device);
+
     return jsonResponse({
       device_id: DEVICE_ID,
       device_name: device?.name ?? null,
@@ -205,6 +232,7 @@ Deno.serve(async (req) => {
       time_source: timeSource,
       fetched_at: fetchedAt,
       location_available: locationAvailable,
+      speed_kmh: speedKmh,
       track,
     });
   } catch (error) {
