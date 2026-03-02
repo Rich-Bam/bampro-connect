@@ -28,6 +28,33 @@ async function safeJson(response: Response) {
   }
 }
 
+function getGpsTimestamp(device: Record<string, unknown>) {
+  const candidates = [
+    device?.gps_updated_at,
+    device?.gps_update_time,
+    device?.gps_time,
+    device?.last_gps_time,
+    device?.gps_last_updated,
+    device?.gps_location_time,
+  ];
+  for (const value of candidates) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  const gpsLocation = (device as { starlink_status?: Array<Record<string, unknown>> })
+    ?.starlink_status?.[0]?.gpsLocation as Record<string, unknown> | undefined;
+  if (gpsLocation) {
+    const gpsCandidates = [gpsLocation.timestamp, gpsLocation.time, gpsLocation.ts];
+    for (const value of gpsCandidates) {
+      if (typeof value === "string" && value.trim()) {
+        return value;
+      }
+    }
+  }
+  return null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -101,13 +128,24 @@ Deno.serve(async (req) => {
     const lat = typeof gpsLocation?.lat === "number" ? gpsLocation.lat : null;
     const lng = typeof gpsLocation?.lon === "number" ? gpsLocation.lon : null;
     const locationAvailable = lat !== null && lng !== null;
+    const fetchedAt = new Date().toISOString();
+    const gpsReportedAt = getGpsTimestamp(device);
+    const deviceUpdatedAt = device?.last_ic2_online_time ?? device?.last_online ?? null;
+    const updatedAt = gpsReportedAt ?? deviceUpdatedAt ?? fetchedAt;
+    const timeSource = gpsReportedAt
+      ? "gps_reported_at"
+      : deviceUpdatedAt
+        ? "device_updated_at"
+        : "fetched_at";
 
     return jsonResponse({
       device_id: DEVICE_ID,
       device_name: device?.name ?? null,
       lat,
       lng,
-      updated_at: device?.last_ic2_online_time ?? device?.last_online ?? null,
+      updated_at: updatedAt,
+      time_source: timeSource,
+      fetched_at: fetchedAt,
       location_available: locationAvailable,
     });
   } catch (error) {

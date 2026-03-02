@@ -208,7 +208,8 @@
 
           deviceNameEl.textContent = `Device: ${data.device_name || data.device_id}`;
           const updatedInfo = formatUpdatedAt(data.updated_at);
-          updatedEl.innerHTML = `${updatedInfo.label}${updatedInfo.age ? `<br />${updatedInfo.age}` : ""}`;
+          const sourceLabel = data.time_source ? `Source: ${data.time_source}` : "";
+          updatedEl.innerHTML = `${updatedInfo.label}${updatedInfo.age ? `<br />${updatedInfo.age}` : ""}${sourceLabel ? `<br />${sourceLabel}` : ""}`;
 
           if (!data.location_available || data.lat == null || data.lng == null) {
             statusEl.textContent = "No GPS fix available yet.";
