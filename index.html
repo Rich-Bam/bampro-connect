@@ -46,9 +46,75 @@
         color: #9ca3af;
         margin: 6px 0 0;
       }
+
+      .auth-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(3, 7, 18, 0.92);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+      }
+
+      .auth-card {
+        width: min(360px, 90vw);
+        background: #111827;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      }
+
+      .auth-card h2 {
+        margin: 0 0 10px;
+        font-size: 18px;
+      }
+
+      .auth-card p {
+        margin: 0 0 12px;
+        color: #9ca3af;
+        font-size: 14px;
+      }
+
+      .auth-card input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #374151;
+        background: #0b1220;
+        color: #e5e7eb;
+        margin-bottom: 10px;
+      }
+
+      .auth-card button {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: none;
+        background: #3b82f6;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .auth-error {
+        color: #f87171;
+        font-size: 13px;
+        margin-top: 8px;
+        min-height: 16px;
+      }
     </style>
   </head>
   <body>
+    <div class="auth-overlay" id="auth-overlay">
+      <div class="auth-card">
+        <h2>Login</h2>
+        <p>Enter the password to view the live GPS map.</p>
+        <input id="auth-password" type="password" placeholder="Password" />
+        <button id="auth-submit">Unlock Map</button>
+        <div class="auth-error" id="auth-error"></div>
+      </div>
+    </div>
     <div class="panel">
       <h1>Peplink GPS Location</h1>
       <div id="device-name">Device: loading…</div>
@@ -74,8 +140,16 @@
       const deviceNameEl = document.getElementById("device-name");
       const coordsEl = document.getElementById("coords");
       const updatedEl = document.getElementById("updated");
+      const authOverlay = document.getElementById("auth-overlay");
+      const authPasswordInput = document.getElementById("auth-password");
+      const authSubmit = document.getElementById("auth-submit");
+      const authError = document.getElementById("auth-error");
 
       let marker = null;
+      let trackLine = null;
+      const trackPoints = [];
+      const trackLimit = 500;
+      const PASSWORD = "Zwerver2";
 
       function toDmm(dec, isLat) {
         const dir = isLat ? (dec >= 0 ? "N" : "S") : (dec >= 0 ? "E" : "W");
@@ -83,6 +157,36 @@
         const deg = Math.floor(abs);
         const min = (abs - deg) * 60;
         return `${deg}° ${min.toFixed(3)}' ${dir}`;
+      }
+
+      function formatUpdatedAt(isoString) {
+        if (!isoString) {
+          return { label: "Updated: unknown", age: "" };
+        }
+        const parsed = new Date(isoString);
+        if (Number.isNaN(parsed.getTime())) {
+          return { label: `Updated: ${isoString}`, age: "" };
+        }
+        const now = new Date();
+        const diffMs = now.getTime() - parsed.getTime();
+        const diffSec = Math.max(0, Math.floor(diffMs / 1000));
+        const minutes = Math.floor(diffSec / 60);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+        let age = "";
+        if (days > 0) {
+          age = `${days}d ${hours % 24}h`;
+        } else if (hours > 0) {
+          age = `${hours}h ${minutes % 60}m`;
+        } else if (minutes > 0) {
+          age = `${minutes}m`;
+        } else {
+          age = `${diffSec}s`;
+        }
+        return {
+          label: `Updated: ${parsed.toLocaleString()}`,
+          age: `Last GPS age: ${age} ago`,
+        };
       }
 
       async function fetchLocation() {
@@ -96,7 +200,8 @@
           const data = await response.json();
 
           deviceNameEl.textContent = `Device: ${data.device_name || data.device_id}`;
-          updatedEl.textContent = `Updated: ${data.updated_at || "unknown"}`;
+          const updatedInfo = formatUpdatedAt(data.updated_at);
+          updatedEl.innerHTML = `${updatedInfo.label}${updatedInfo.age ? `<br />${updatedInfo.age}` : ""}`;
 
           if (!data.location_available || data.lat == null || data.lng == null) {
             statusEl.textContent = "No GPS fix available yet.";
@@ -117,13 +222,56 @@
           } else {
             marker.setLatLng([lat, lng]);
           }
+
+          const lastPoint = trackPoints[trackPoints.length - 1];
+          if (!lastPoint || lastPoint[0] !== lat || lastPoint[1] !== lng) {
+            trackPoints.push([lat, lng]);
+            if (trackPoints.length > trackLimit) {
+              trackPoints.shift();
+            }
+            if (!trackLine) {
+              trackLine = L.polyline(trackPoints, {
+                color: "#1d4ed8",
+                weight: 3,
+                opacity: 0.85,
+              }).addTo(map);
+            } else {
+              trackLine.setLatLngs(trackPoints);
+            }
+          }
         } catch (error) {
           statusEl.textContent = "Failed to fetch GPS data.";
         }
       }
 
-      fetchLocation();
-      setInterval(fetchLocation, 20000);
+      function unlockMap() {
+        sessionStorage.setItem("gps_auth", "true");
+        authOverlay.style.display = "none";
+        fetchLocation();
+        setInterval(fetchLocation, 20000);
+      }
+
+      authSubmit.addEventListener("click", () => {
+        const value = authPasswordInput.value || "";
+        if (value === PASSWORD) {
+          authError.textContent = "";
+          unlockMap();
+        } else {
+          authError.textContent = "Incorrect password.";
+        }
+      });
+
+      authPasswordInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          authSubmit.click();
+        }
+      });
+
+      if (sessionStorage.getItem("gps_auth") === "true") {
+        authOverlay.style.display = "none";
+        fetchLocation();
+        setInterval(fetchLocation, 20000);
+      }
     </script>
   </body>
 </html>
