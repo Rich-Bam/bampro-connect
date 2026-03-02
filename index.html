@@ -260,15 +260,36 @@
         return null;
       }
 
-      function formatUpdatedAt(isoString) {
+      function formatUpdatedAt(isoString, timeSource) {
+        const gpsAgeUnknown = timeSource === "starlink_gps_no_time" || timeSource === "fetched_at";
         if (!isoString) {
-          return { label: "Updated: unknown", age: "", ageSeconds: null };
+          return {
+            label: "Updated: unknown",
+            age: gpsAgeUnknown ? "Last GPS age: Unknown (no timestamp from Starlink)" : "",
+            ageSeconds: null,
+          };
         }
         const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(isoString);
         const normalized = hasTz ? isoString : `${isoString}Z`;
         const parsed = new Date(normalized);
         if (Number.isNaN(parsed.getTime())) {
-          return { label: `Updated: ${isoString}`, age: "", ageSeconds: null };
+          return {
+            label: `Updated: ${isoString}`,
+            age: gpsAgeUnknown ? "Last GPS age: Unknown (no timestamp from Starlink)" : "",
+            ageSeconds: null,
+          };
+        }
+        if (gpsAgeUnknown) {
+          const amsterdam = new Intl.DateTimeFormat("nl-NL", {
+            timeZone: "Europe/Amsterdam",
+            dateStyle: "medium",
+            timeStyle: "medium",
+          }).format(parsed);
+          return {
+            label: `Updated (Amsterdam): ${amsterdam}`,
+            age: "Last GPS age: Unknown (no timestamp from Starlink)",
+            ageSeconds: null,
+          };
         }
         const now = new Date();
         const diffMs = now.getTime() - parsed.getTime();
@@ -310,7 +331,7 @@
           const data = await response.json();
 
           deviceNameEl.textContent = `Device: ${data.device_name || data.device_id}`;
-          const updatedInfo = formatUpdatedAt(data.updated_at);
+          const updatedInfo = formatUpdatedAt(data.updated_at, data.time_source);
           const sourceLabel = data.time_source ? `Source: ${data.time_source}` : "";
           const isStale = typeof updatedInfo.ageSeconds === "number"
             ? updatedInfo.ageSeconds > 20
@@ -394,7 +415,7 @@
               li.className = `wan-item ${isConnected ? "is-connected" : "is-disconnected"}`;
               li.innerHTML = `
                 <strong>${wan.name || "WAN"}</strong>
-                <div class="wan-meta">${wan.status || "Unknown"}${wan.ip ? ` • ${wan.ip}` : ""}</div>
+                <div class="wan-meta">${wan.status || "Unknown"}</div>
               `;
               wanListEl.appendChild(li);
             });
