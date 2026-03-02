@@ -357,8 +357,10 @@
           if (Array.isArray(data.track) && data.track.length > 0) {
             trackPoints.length = 0;
             for (const point of data.track.slice(-trackLimit)) {
-              if (typeof point.lat === "number" && typeof point.lng === "number") {
-                trackPoints.push([point.lat, point.lng]);
+              const trackLat = typeof point.lat === "number" ? point.lat : Number(point.lat);
+              const trackLng = typeof point.lng === "number" ? point.lng : Number(point.lng);
+              if (!Number.isNaN(trackLat) && !Number.isNaN(trackLng)) {
+                trackPoints.push([trackLat, trackLng]);
               }
             }
           } else {
@@ -372,14 +374,16 @@
             trackPoints.splice(0, trackPoints.length - trackLimit);
           }
 
-          if (!trackLine) {
-            trackLine = L.polyline(trackPoints, {
-              color: "#1d4ed8",
-              weight: 3,
-              opacity: 0.85,
-            }).addTo(map);
-          } else {
-            trackLine.setLatLngs(trackPoints);
+          if (trackPoints.length >= 2) {
+            if (!trackLine) {
+              trackLine = L.polyline(trackPoints, {
+                color: "#1d4ed8",
+                weight: 3,
+                opacity: 0.85,
+              }).addTo(map);
+            } else {
+              trackLine.setLatLngs(trackPoints);
+            }
           }
         } catch (error) {
           statusEl.textContent = "Failed to fetch GPS data.";
