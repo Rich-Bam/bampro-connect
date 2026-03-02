@@ -112,3 +112,5 @@
 {"runId":"pre-fix","hypothesisId":"H2","location":"index.html:track:parsed","message":"parsed track points","data":{"parsedLen":1000,"first":[24.667276,53.30752],"last":[24.536287,53.196995]},"timestamp":1772463600603}
 {"runId":"pre-fix","hypothesisId":"H3","location":"index.html:track:polyline:update","message":"polyline updated","data":{"trackPointsLen":1000},"timestamp":1772463600603}
 {"runId":"pre-fix","hypothesisId":"H1","location":"index.html:fetchLocation:start","message":"fetchLocation called","data":{"hasTrackLine":true,"trackPointsLen":1000},"timestamp":1772463659961}
+{"runId":"pre-fix","hypothesisId":"H3","location":"index.html:track:polyline:update","message":"polyline updated","data":{"trackPointsLen":1000},"timestamp":1772465293517}
+{"runId":"pre-fix","hypothesisId":"H3","location":"index.html:track:polyline:update","message":"polyline updated","data":{"trackPointsLen":1000},"timestamp":1772465304284}
