@@ -265,7 +265,7 @@
         if (!isoString) {
           return {
             label: "Updated: unknown",
-            age: gpsAgeUnknown ? "Last GPS age: Unknown (no timestamp from Starlink)" : "",
+            age: "",
             ageSeconds: null,
           };
         }
@@ -275,19 +275,7 @@
         if (Number.isNaN(parsed.getTime())) {
           return {
             label: `Updated: ${isoString}`,
-            age: gpsAgeUnknown ? "Last GPS age: Unknown (no timestamp from Starlink)" : "",
-            ageSeconds: null,
-          };
-        }
-        if (gpsAgeUnknown) {
-          const amsterdam = new Intl.DateTimeFormat("nl-NL", {
-            timeZone: "Europe/Amsterdam",
-            dateStyle: "medium",
-            timeStyle: "medium",
-          }).format(parsed);
-          return {
-            label: `Updated (Amsterdam): ${amsterdam}`,
-            age: "Last GPS age: Unknown (no timestamp from Starlink)",
+            age: "",
             ageSeconds: null,
           };
         }
@@ -297,15 +285,15 @@
         const minutes = Math.floor(diffSec / 60);
         const hours = Math.floor(minutes / 60);
         const days = Math.floor(hours / 24);
-        let age = "";
+        let ageText = "";
         if (days > 0) {
-          age = `${days}d ${hours % 24}h`;
+          ageText = `${days}d ${hours % 24}h`;
         } else if (hours > 0) {
-          age = `${hours}h ${minutes % 60}m`;
+          ageText = `${hours}h ${minutes % 60}m`;
         } else if (minutes > 0) {
-          age = `${minutes}m`;
+          ageText = `${minutes}m`;
         } else {
-          age = `${diffSec}s`;
+          ageText = `${diffSec}s`;
         }
         const amsterdam = new Intl.DateTimeFormat("nl-NL", {
           timeZone: "Europe/Amsterdam",
@@ -314,7 +302,9 @@
         }).format(parsed);
         return {
           label: `Updated (Amsterdam): ${amsterdam}`,
-          age: `Last GPS age: ${age} ago`,
+          age: gpsAgeUnknown
+            ? `Last fetched: ${ageText} ago`
+            : `Last GPS age: ${ageText} ago`,
           ageSeconds: diffSec,
         };
       }
