@@ -245,7 +245,10 @@
           const dmmLng = toDmm(lng, false);
           coordsEl.innerHTML = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}<div class="dmm">DMM: ${dmmLat}, ${dmmLng}</div><div class="badge">DMM format</div>`;
           if (typeof data.speed_kmh === "number" && !Number.isNaN(data.speed_kmh)) {
-            const knots = data.speed_kmh / 1.852;
+            const knots =
+              typeof data.speed_kn === "number" && !Number.isNaN(data.speed_kn)
+                ? data.speed_kn
+                : data.speed_kmh / 1.852;
             speedEl.textContent = `Speed: ${data.speed_kmh.toFixed(1)} km/h (${knots.toFixed(1)} kn)`;
           } else {
             speedEl.textContent = "Speed: —";

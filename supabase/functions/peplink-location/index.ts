@@ -98,6 +98,17 @@ function getSpeedKmh(device: Record<string, unknown>) {
   return null;
 }
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return 2 * 6371 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -222,6 +233,20 @@ Deno.serve(async (req) => {
     }
 
     const speedKmh = getSpeedKmh(device);
+    let computedSpeedKmh: number | null = null;
+    if (track.length >= 2) {
+      const last = track[track.length - 1];
+      const prev = track[track.length - 2];
+      const t1 = Date.parse(prev.recorded_at);
+      const t2 = Date.parse(last.recorded_at);
+      if (!Number.isNaN(t1) && !Number.isNaN(t2) && t2 > t1) {
+        const distanceKm = haversineKm(prev.lat, prev.lng, last.lat, last.lng);
+        const hours = (t2 - t1) / (1000 * 60 * 60);
+        if (hours > 0) {
+          computedSpeedKmh = distanceKm / hours;
+        }
+      }
+    }
 
     return jsonResponse({
       device_id: DEVICE_ID,
@@ -232,7 +257,12 @@ Deno.serve(async (req) => {
       time_source: timeSource,
       fetched_at: fetchedAt,
       location_available: locationAvailable,
-      speed_kmh: speedKmh,
+      speed_kmh: speedKmh ?? computedSpeedKmh,
+      speed_kn: speedKmh
+        ? speedKmh / 1.852
+        : computedSpeedKmh
+          ? computedSpeedKmh / 1.852
+          : null,
       track,
     });
   } catch (error) {
