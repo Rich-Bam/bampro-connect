@@ -248,6 +248,15 @@ Deno.serve(async (req) => {
       }
     }
 
+    const interfaces = Array.isArray(device?.interfaces) ? device.interfaces : [];
+    const wanStatus = interfaces.map((iface: Record<string, unknown>) => ({
+      id: iface.id ?? null,
+      name: iface.name ?? "WAN",
+      status: iface.status ?? "Unknown",
+      ip: iface.ip ?? null,
+      type: iface.type ?? null,
+    }));
+
     return jsonResponse({
       device_id: DEVICE_ID,
       device_name: device?.name ?? null,
@@ -264,6 +273,7 @@ Deno.serve(async (req) => {
           ? computedSpeedKmh / 1.852
           : null,
       track,
+      wan_status: wanStatus,
     });
   } catch (error) {
     return jsonResponse({ error: "Unexpected error.", details: String(error) }, 500);
