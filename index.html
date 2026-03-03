@@ -238,6 +238,11 @@
       const trackLimit = 5000;
       const PASSWORD = "Zwerver2";
 
+      let lastUpdatedAt = null;
+      let lastTimeSource = null;
+      let lastSourceLabel = "";
+      let ageTickIntervalId = null;
+
       function toDmm(dec, isLat) {
         const dir = isLat ? (dec >= 0 ? "N" : "S") : (dec >= 0 ? "E" : "W");
         const abs = Math.abs(dec);
@@ -309,6 +314,19 @@
         };
       }
 
+      function tickAgeDisplay() {
+        if (lastUpdatedAt == null) return;
+        const updatedInfo = formatUpdatedAt(lastUpdatedAt, lastTimeSource);
+        const isStale = typeof updatedInfo.ageSeconds === "number"
+          ? updatedInfo.ageSeconds > 20
+          : false;
+        if (panelEl) {
+          panelEl.classList.toggle("is-stale", isStale);
+        }
+        staleBadgeEl.style.display = isStale ? "inline-block" : "none";
+        updatedEl.innerHTML = `${updatedInfo.label}${updatedInfo.age ? `<br />${updatedInfo.age}` : ""}${lastSourceLabel ? `<br />${lastSourceLabel}` : ""}`;
+      }
+
       async function fetchLocation() {
         try {
           const response = await fetch(
@@ -323,6 +341,9 @@
           deviceNameEl.textContent = `Device: ${data.device_name || data.device_id}`;
           const updatedInfo = formatUpdatedAt(data.updated_at, data.time_source);
           const sourceLabel = data.time_source ? `Source: ${data.time_source}` : "";
+          lastUpdatedAt = data.updated_at;
+          lastTimeSource = data.time_source;
+          lastSourceLabel = sourceLabel;
           const isStale = typeof updatedInfo.ageSeconds === "number"
             ? updatedInfo.ageSeconds > 20
             : false;
@@ -467,8 +488,10 @@
       function unlockMap() {
         sessionStorage.setItem("gps_auth", "true");
         authOverlay.style.display = "none";
-      fetchLocation();
-      setInterval(fetchLocation, 10000);
+        fetchLocation();
+        setInterval(fetchLocation, 10000);
+        if (ageTickIntervalId != null) clearInterval(ageTickIntervalId);
+        ageTickIntervalId = setInterval(tickAgeDisplay, 1000);
       }
 
       authSubmit.addEventListener("click", () => {
@@ -491,6 +514,8 @@
         authOverlay.style.display = "none";
         fetchLocation();
         setInterval(fetchLocation, 10000);
+        if (ageTickIntervalId != null) clearInterval(ageTickIntervalId);
+        ageTickIntervalId = setInterval(tickAgeDisplay, 1000);
       }
     </script>
   </body>
