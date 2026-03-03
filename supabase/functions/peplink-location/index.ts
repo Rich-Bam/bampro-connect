@@ -178,7 +178,51 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Device not found." }, 404);
     }
 
+    const groupId = typeof device?.group_id === "number" ? device.group_id : null;
     const fetchedAt = new Date().toISOString();
+
+    // Fetch Peplink's own track (matches InControl map) when available
+    let peplinkTrack: Array<{ lat: number; lng: number; recorded_at: string; sp?: number }> = [];
+    const usePeplinkTrack = (Deno.env.get("USE_PEPLINK_TRACK") ?? "true").toLowerCase() !== "false";
+    if (usePeplinkTrack && groupId != null) {
+      const toIso = (d: Date) => d.toISOString().slice(0, 19);
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      // API requires start/end on same day; fetch today and yesterday
+      const dayRanges: [string, string][] = [
+        [toIso(startOfToday), toIso(now)],
+      ];
+      const startOfYesterday = new Date(startOfToday);
+      startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+      const endOfYesterday = new Date(startOfToday.getTime() - 1);
+      dayRanges.push([toIso(startOfYesterday), toIso(endOfYesterday)]);
+      const allPoints: Array<{ lat: number; lng: number; recorded_at: string; sp?: number }> = [];
+      for (const [startStr, endStr] of dayRanges) {
+        const locUrl = `${API_BASE}/o/${ORG_ID}/g/${groupId}/d/${DEVICE_ID}/loc?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}&access_token=${accessToken}`;
+        try {
+          const locRes = await fetch(locUrl);
+          if (locRes.ok) {
+            const locParsed = await safeJson(locRes);
+            if (locParsed.ok && Array.isArray(locParsed.json?.data)) {
+              const points = locParsed.json.data as Array<{ lo?: number; la?: number; ts?: string; sp?: number }>;
+              for (const p of points) {
+                if (typeof p.la === "number" && typeof p.lo === "number" && p.ts) {
+                  allPoints.push({
+                    lat: p.la,
+                    lng: p.lo,
+                    recorded_at: String(p.ts),
+                    sp: typeof p.sp === "number" ? p.sp : undefined,
+                  });
+                }
+              }
+            }
+          }
+        } catch {
+          // Ignore this day
+        }
+      }
+      peplinkTrack = allPoints.sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
+    }
 
     // Device GPS (InControl – matches Peplink Mars)
     const deviceLatRaw = device?.latitude;
@@ -297,11 +341,18 @@ Deno.serve(async (req) => {
         .gte("recorded_at", since)
         .order("recorded_at", { ascending: true });
 
-      track = (data ?? []).map((row) => ({
+      const dbTrack = (data ?? []).map((row) => ({
         lat: row.lat,
         lng: row.lng,
         recorded_at: row.recorded_at,
       }));
+
+      // Use Peplink's track when available (matches InControl map); otherwise gps_points
+      track = peplinkTrack.length > 0
+        ? peplinkTrack.map((p) => ({ lat: p.lat, lng: p.lng, recorded_at: p.recorded_at }))
+        : dbTrack;
+    } else if (peplinkTrack.length > 0) {
+      track = peplinkTrack.map((p) => ({ lat: p.lat, lng: p.lng, recorded_at: p.recorded_at }));
     }
 
     // Append current position to track so the blue line always connects to the marker
@@ -316,9 +367,18 @@ Deno.serve(async (req) => {
       }
     }
 
-    const speedKmh = getSpeedKmh(device);
+    let speedKmh = getSpeedKmh(device);
+    let usedPeplinkSpeed = false;
+    // Prefer Peplink's speed from their track when using it (matches InControl display)
+    if (speedKmh == null && peplinkTrack.length > 0) {
+      const lastPoint = peplinkTrack[peplinkTrack.length - 1];
+      if (typeof lastPoint?.sp === "number" && lastPoint.sp >= 0) {
+        speedKmh = lastPoint.sp; // Peplink returns km/h
+        usedPeplinkSpeed = true;
+      }
+    }
     let computedSpeedKmh: number | null = null;
-    let speedSource: "api" | "computed" | "computed_smoothed" | null = null;
+    let speedSource: "api" | "computed" | "computed_smoothed" | "peplink_track" | null = null;
 
     if (track.length >= 2 && lat !== null && lng !== null) {
       const fetchedAtMs = Date.parse(fetchedAt);
@@ -379,9 +439,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    const useApiSpeed = speedKmh != null && speedKmh > 0;
+    const useApiSpeed = speedKmh != null && (speedKmh > 0 || usedPeplinkSpeed);
     const effectiveSpeedKmh = useApiSpeed ? speedKmh : computedSpeedKmh;
-    if (useApiSpeed) {
+    if (usedPeplinkSpeed) {
+      speedSource = "peplink_track";
+    } else if (speedKmh != null && speedKmh > 0) {
       speedSource = "api";
     }
 
