@@ -376,7 +376,8 @@
               ? Number(data.speed_kn)
               : null;
           let fallbackSpeedKmh = null;
-          if ((!Number.isFinite(speedKmh) || speedKmh === null) && Array.isArray(data.track) && data.track.length >= 2) {
+          const useApiSpeed = Number.isFinite(speedKmh) && speedKmh !== null && speedKmh > 0;
+          if ((!useApiSpeed) && Array.isArray(data.track) && data.track.length >= 2) {
             const lastPoint = data.track[data.track.length - 1];
             const prevPoint = data.track[data.track.length - 2];
             const prevLat = parseCoord(prevPoint.lat);
@@ -402,7 +403,7 @@
               }
             }
           }
-          const effectiveSpeedKmh = Number.isFinite(speedKmh) ? speedKmh : fallbackSpeedKmh;
+          const effectiveSpeedKmh = useApiSpeed ? speedKmh : fallbackSpeedKmh;
           if (typeof effectiveSpeedKmh === "number" && !Number.isNaN(effectiveSpeedKmh)) {
             const knots =
               typeof speedKn === "number" && !Number.isNaN(speedKn)

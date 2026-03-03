@@ -87,6 +87,13 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   return 2 * 6371 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -236,18 +243,51 @@ Deno.serve(async (req) => {
 
     const speedKmh = getSpeedKmh(device);
     let computedSpeedKmh: number | null = null;
-    if (track.length >= 2) {
-      const last = track[track.length - 1];
-      const prev = track[track.length - 2];
-      const t1 = Date.parse(prev.recorded_at);
-      const t2 = Date.parse(last.recorded_at);
-      if (!Number.isNaN(t1) && !Number.isNaN(t2) && t2 > t1) {
-        const distanceKm = haversineKm(prev.lat, prev.lng, last.lat, last.lng);
-        const hours = (t2 - t1) / (1000 * 60 * 60);
-        if (hours > 0) {
-          computedSpeedKmh = distanceKm / hours;
+    let speedSource: "api" | "computed" | "computed_smoothed" | null = null;
+
+    if (track.length >= 2 && lat !== null && lng !== null) {
+      const fetchedAtMs = Date.parse(fetchedAt);
+      const segmentSpeeds: number[] = [];
+
+      if (!locationFallback && track.length >= 2) {
+        const prev = track[track.length - 2];
+        const t1 = Date.parse(prev.recorded_at);
+        if (!Number.isNaN(t1) && !Number.isNaN(fetchedAtMs) && fetchedAtMs > t1) {
+          const distanceKm = haversineKm(prev.lat, prev.lng, lat, lng);
+          const hours = (fetchedAtMs - t1) / (1000 * 60 * 60);
+          if (hours > 0) {
+            segmentSpeeds.push(distanceKm / hours);
+          }
         }
       }
+
+      for (let i = Math.max(0, track.length - 5); i < track.length - 1; i++) {
+        const a = track[i];
+        const b = track[i + 1];
+        const t1 = Date.parse(a.recorded_at);
+        const t2 = Date.parse(b.recorded_at);
+        if (!Number.isNaN(t1) && !Number.isNaN(t2) && t2 > t1) {
+          const distanceKm = haversineKm(a.lat, a.lng, b.lat, b.lng);
+          const hours = (t2 - t1) / (1000 * 60 * 60);
+          if (hours > 0) {
+            segmentSpeeds.push(distanceKm / hours);
+          }
+        }
+      }
+
+      if (segmentSpeeds.length >= 3) {
+        computedSpeedKmh = median(segmentSpeeds);
+        speedSource = "computed_smoothed";
+      } else if (segmentSpeeds.length >= 1) {
+        computedSpeedKmh = segmentSpeeds[segmentSpeeds.length - 1];
+        speedSource = "computed";
+      }
+    }
+
+    const useApiSpeed = speedKmh != null && speedKmh > 0;
+    const effectiveSpeedKmh = useApiSpeed ? speedKmh : computedSpeedKmh;
+    if (useApiSpeed) {
+      speedSource = "api";
     }
 
     const interfaces = Array.isArray(device?.interfaces) ? device.interfaces : [];
@@ -271,12 +311,9 @@ Deno.serve(async (req) => {
       fetched_at: fetchedAt,
       location_available: locationAvailable,
       location_fallback: locationFallback,
-      speed_kmh: speedKmh ?? computedSpeedKmh,
-      speed_kn: speedKmh
-        ? speedKmh / 1.852
-        : computedSpeedKmh
-          ? computedSpeedKmh / 1.852
-          : null,
+      speed_kmh: effectiveSpeedKmh,
+      speed_kn: effectiveSpeedKmh != null ? effectiveSpeedKmh / 1.852 : null,
+      speed_source: speedSource,
       track,
       wan_status: wanStatus,
     });
