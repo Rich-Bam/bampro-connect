@@ -94,6 +94,11 @@ function median(values: number[]): number {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+/** Minimum segment duration (avoid noise from tiny deltas). */
+const MIN_SEGMENT_AGE_MS = 3 * 1000; // 3 seconds
+/** Maximum segment duration – longer gaps (e.g. offline) give misleading average speed. */
+const MAX_SEGMENT_AGE_MS = 5 * 60 * 1000; // 5 minutes
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -251,27 +256,41 @@ Deno.serve(async (req) => {
       let mostRecentSpeed: number | null = null;
 
       // Current segment: prev to live position (most responsive, no duplicate)
+      // Only use when gap is reasonable – long gaps (e.g. offline) give misleading average speed
       if (!locationFallback && track.length >= 2) {
         const prev = track[track.length - 2];
         const t1 = Date.parse(prev.recorded_at);
-        if (!Number.isNaN(t1) && !Number.isNaN(fetchedAtMs) && fetchedAtMs > t1) {
+        const deltaMs = fetchedAtMs - t1;
+        if (
+          !Number.isNaN(t1) &&
+          !Number.isNaN(fetchedAtMs) &&
+          deltaMs >= MIN_SEGMENT_AGE_MS &&
+          deltaMs <= MAX_SEGMENT_AGE_MS
+        ) {
           const distanceKm = haversineKm(prev.lat, prev.lng, lat, lng);
-          const hours = (fetchedAtMs - t1) / (1000 * 60 * 60);
+          const hours = deltaMs / (1000 * 60 * 60);
           if (hours > 0) {
             mostRecentSpeed = distanceKm / hours;
           }
         }
       }
 
-      // Historical segments only (exclude track[n-2]→track[n-1] to avoid duplicate)
-      for (let i = Math.max(0, track.length - 3); i < track.length - 2; i++) {
+      // Historical segments with valid time deltas (last ~10 segments for fallback)
+      const histStart = Math.max(0, track.length - 12);
+      for (let i = histStart; i < track.length - 1; i++) {
         const a = track[i];
         const b = track[i + 1];
         const t1 = Date.parse(a.recorded_at);
         const t2 = Date.parse(b.recorded_at);
-        if (!Number.isNaN(t1) && !Number.isNaN(t2) && t2 > t1) {
+        const deltaMs = t2 - t1;
+        if (
+          !Number.isNaN(t1) &&
+          !Number.isNaN(t2) &&
+          deltaMs >= MIN_SEGMENT_AGE_MS &&
+          deltaMs <= MAX_SEGMENT_AGE_MS
+        ) {
           const distanceKm = haversineKm(a.lat, a.lng, b.lat, b.lng);
-          const hours = (t2 - t1) / (1000 * 60 * 60);
+          const hours = deltaMs / (1000 * 60 * 60);
           if (hours > 0) {
             segmentSpeeds.push(distanceKm / hours);
           }
