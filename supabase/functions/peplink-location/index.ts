@@ -52,6 +52,10 @@ function getStarlinkGpsTimestamp(device: Record<string, unknown>) {
 }
 
 function getSpeedKmh(device: Record<string, unknown>) {
+  const starlink = (device as { starlink_status?: Array<Record<string, unknown>> })
+    ?.starlink_status?.[0];
+  const gpsLoc = starlink?.gpsLocation as Record<string, unknown> | undefined;
+
   const candidates = [
     device?.speed,
     device?.speed_kmh,
@@ -60,6 +64,10 @@ function getSpeedKmh(device: Record<string, unknown>) {
     device?.gps?.speed_kmh,
     device?.gps?.speedKmh,
     device?.gpsLocation?.speed,
+    gpsLoc?.speed,
+    gpsLoc?.speed_kmh,
+    gpsLoc?.speedKmh,
+    starlink?.speed,
   ];
 
   for (const value of candidates) {
@@ -98,6 +106,8 @@ function median(values: number[]): number {
 const MIN_SEGMENT_AGE_MS = 3 * 1000; // 3 seconds
 /** Maximum segment duration – longer gaps (e.g. offline) give misleading average speed. */
 const MAX_SEGMENT_AGE_MS = 5 * 60 * 1000; // 5 minutes
+/** For current position segment, allow longer gaps to show speed when site was closed. */
+const MAX_CURRENT_SEGMENT_AGE_MS = 30 * 60 * 1000; // 30 minutes
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -204,10 +214,10 @@ Deno.serve(async (req) => {
     const starlinkLocationAvailable = starlinkLat !== null && starlinkLng !== null;
     const gpsReportedAt = getStarlinkGpsTimestamp(device);
 
-    // Source selection: USE_DEVICE_GPS=true|1 tries device GPS first, else Starlink-only
+    // Source selection: USE_DEVICE_GPS defaults to true to match Peplink dashboard
+    const useDeviceGpsEnv = Deno.env.get("USE_DEVICE_GPS") ?? "true";
     const useDeviceGps =
-      (Deno.env.get("USE_DEVICE_GPS") ?? "").toLowerCase() === "true" ||
-      Deno.env.get("USE_DEVICE_GPS") === "1";
+      useDeviceGpsEnv.toLowerCase() === "true" || useDeviceGpsEnv === "1";
 
     let lat: number | null;
     let lng: number | null;
@@ -294,6 +304,18 @@ Deno.serve(async (req) => {
       }));
     }
 
+    // Append current position to track so the blue line always connects to the marker
+    if (lat !== null && lng !== null) {
+      const lastTrack = track[track.length - 1];
+      const isDifferent =
+        !lastTrack ||
+        Math.abs(lastTrack.lat - lat) > 1e-6 ||
+        Math.abs(lastTrack.lng - lng) > 1e-6;
+      if (isDifferent) {
+        track = [...track, { lat, lng, recorded_at: fetchedAt }];
+      }
+    }
+
     const speedKmh = getSpeedKmh(device);
     let computedSpeedKmh: number | null = null;
     let speedSource: "api" | "computed" | "computed_smoothed" | null = null;
@@ -303,17 +325,17 @@ Deno.serve(async (req) => {
       const segmentSpeeds: number[] = [];
       let mostRecentSpeed: number | null = null;
 
-      // Current segment: prev to live position (most responsive, no duplicate)
-      // Only use when gap is reasonable – long gaps (e.g. offline) give misleading average speed
+      // Current segment: last DB point to live position (most responsive)
+      // Use a longer max gap for current segment so speed updates when site was briefly closed
       if (!locationFallback && track.length >= 2) {
-        const prev = track[track.length - 2];
+        const prev = track[track.length - 2]; // current position is at length-1 (appended above)
         const t1 = Date.parse(prev.recorded_at);
         const deltaMs = fetchedAtMs - t1;
         if (
           !Number.isNaN(t1) &&
           !Number.isNaN(fetchedAtMs) &&
           deltaMs >= MIN_SEGMENT_AGE_MS &&
-          deltaMs <= MAX_SEGMENT_AGE_MS
+          deltaMs <= MAX_CURRENT_SEGMENT_AGE_MS
         ) {
           const distanceKm = haversineKm(prev.lat, prev.lng, lat, lng);
           const hours = deltaMs / (1000 * 60 * 60);

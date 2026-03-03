@@ -361,7 +361,7 @@
           updatedEl.innerHTML = `${updatedInfo.label}${updatedInfo.age ? `<br />${updatedInfo.age}` : ""}${sourceLabel ? `<br />${sourceLabel}` : ""}`;
 
           if (!data.location_available || data.lat == null || data.lng == null) {
-            statusEl.textContent = "No Starlink GPS fix available yet.";
+            statusEl.textContent = "No GPS fix available yet.";
             coordsEl.textContent = "Location: —";
             speedEl.textContent = "Speed: —";
             return;
@@ -384,7 +384,7 @@
               : null;
           let fallbackSpeedKmh = null;
           const useApiSpeed = Number.isFinite(speedKmh) && speedKmh !== null && speedKmh > 0;
-          if ((!useApiSpeed) && Array.isArray(data.track) && data.track.length >= 2) {
+          if (!useApiSpeed && Array.isArray(data.track) && data.track.length >= 2) {
             const lastPoint = data.track[data.track.length - 1];
             const prevPoint = data.track[data.track.length - 2];
             const prevLat = parseCoord(prevPoint.lat);
@@ -393,7 +393,9 @@
             const lastLng = parseCoord(lastPoint.lng ?? lastPoint.lon);
             const t1 = Date.parse(prevPoint.recorded_at);
             const t2 = Date.parse(lastPoint.recorded_at);
-            if (prevLat !== null && prevLng !== null && lastLat !== null && lastLng !== null && !Number.isNaN(t1) && !Number.isNaN(t2) && t2 > t1) {
+            const deltaMs = t2 - t1;
+            const maxSegmentMs = 30 * 60 * 1000;
+            if (prevLat !== null && prevLng !== null && lastLat !== null && lastLng !== null && !Number.isNaN(t1) && !Number.isNaN(t2) && t2 > t1 && deltaMs <= maxSegmentMs && deltaMs >= 3000) {
               const distanceKm = (function haversineKm(lat1, lng1, lat2, lng2) {
                 const toRad = (value) => (value * Math.PI) / 180;
                 const dLat = toRad(lat2 - lat1);
@@ -420,7 +422,7 @@
           } else {
             speedEl.textContent = "Speed: —";
           }
-          const fallbackNote = data.location_fallback ? " Using last known Starlink GPS." : "";
+          const fallbackNote = data.location_fallback ? " Using last known position." : "";
           statusEl.textContent = isStale
             ? `GPS is stale (older than 20s).${fallbackNote}`
             : `Live GPS active.${fallbackNote}`;
@@ -498,7 +500,7 @@
         sessionStorage.setItem("gps_auth", "true");
         authOverlay.style.display = "none";
         fetchLocation();
-        setInterval(fetchLocation, 10000);
+        setInterval(fetchLocation, 5000);
         if (ageTickIntervalId != null) clearInterval(ageTickIntervalId);
         ageTickIntervalId = setInterval(tickAgeDisplay, 1000);
       }
@@ -517,7 +519,7 @@
       if (sessionStorage.getItem("gps_auth") === "true") {
         authOverlay.style.display = "none";
         fetchLocation();
-        setInterval(fetchLocation, 10000);
+        setInterval(fetchLocation, 5000);
         if (ageTickIntervalId != null) clearInterval(ageTickIntervalId);
         ageTickIntervalId = setInterval(tickAgeDisplay, 1000);
       }
