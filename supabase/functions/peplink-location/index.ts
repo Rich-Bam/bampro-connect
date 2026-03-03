@@ -248,7 +248,9 @@ Deno.serve(async (req) => {
     if (track.length >= 2 && lat !== null && lng !== null) {
       const fetchedAtMs = Date.parse(fetchedAt);
       const segmentSpeeds: number[] = [];
+      let mostRecentSpeed: number | null = null;
 
+      // Current segment: prev to live position (most responsive, no duplicate)
       if (!locationFallback && track.length >= 2) {
         const prev = track[track.length - 2];
         const t1 = Date.parse(prev.recorded_at);
@@ -256,12 +258,13 @@ Deno.serve(async (req) => {
           const distanceKm = haversineKm(prev.lat, prev.lng, lat, lng);
           const hours = (fetchedAtMs - t1) / (1000 * 60 * 60);
           if (hours > 0) {
-            segmentSpeeds.push(distanceKm / hours);
+            mostRecentSpeed = distanceKm / hours;
           }
         }
       }
 
-      for (let i = Math.max(0, track.length - 5); i < track.length - 1; i++) {
+      // Historical segments only (exclude track[n-2]→track[n-1] to avoid duplicate)
+      for (let i = Math.max(0, track.length - 3); i < track.length - 2; i++) {
         const a = track[i];
         const b = track[i + 1];
         const t1 = Date.parse(a.recorded_at);
@@ -275,7 +278,10 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (segmentSpeeds.length >= 3) {
+      if (mostRecentSpeed != null) {
+        computedSpeedKmh = mostRecentSpeed;
+        speedSource = "computed";
+      } else if (segmentSpeeds.length >= 2) {
         computedSpeedKmh = median(segmentSpeeds);
         speedSource = "computed_smoothed";
       } else if (segmentSpeeds.length >= 1) {

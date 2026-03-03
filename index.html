@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%233b82f6'/></svg>" />
     <title>Peplink GPS Map</title>
     <link
       rel="stylesheet"
@@ -184,11 +185,13 @@
   <body>
     <div class="auth-overlay" id="auth-overlay">
       <div class="auth-card">
-        <h2>Login</h2>
-        <p>Enter the password to view the live GPS map.</p>
-        <input id="auth-password" type="password" placeholder="Password" />
-        <button id="auth-submit">Unlock Map</button>
-        <div class="auth-error" id="auth-error"></div>
+        <form id="auth-form" novalidate>
+          <h2>Login</h2>
+          <p>Enter the password to view the live GPS map.</p>
+          <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+          <button type="submit" id="auth-submit">Unlock Map</button>
+          <div class="auth-error" id="auth-error"></div>
+        </form>
       </div>
     </div>
     <div class="panel">
@@ -497,19 +500,14 @@
         ageTickIntervalId = setInterval(tickAgeDisplay, 1000);
       }
 
-      authSubmit.addEventListener("click", () => {
+      document.getElementById("auth-form").addEventListener("submit", (event) => {
+        event.preventDefault();
         const value = authPasswordInput.value || "";
         if (value === PASSWORD) {
           authError.textContent = "";
           unlockMap();
         } else {
           authError.textContent = "Incorrect password.";
-        }
-      });
-
-      authPasswordInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          authSubmit.click();
         }
       });
 
