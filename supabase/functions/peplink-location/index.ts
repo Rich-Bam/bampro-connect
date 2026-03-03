@@ -168,23 +168,70 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Device not found." }, 404);
     }
 
+    const fetchedAt = new Date().toISOString();
+
+    // Device GPS (InControl – matches Peplink Mars)
+    const deviceLatRaw = device?.latitude;
+    const deviceLngRaw = device?.longitude;
+    const deviceLat =
+      typeof deviceLatRaw === "number" && !Number.isNaN(deviceLatRaw) && deviceLatRaw >= -90 && deviceLatRaw <= 90
+        ? deviceLatRaw
+        : null;
+    const deviceLng =
+      typeof deviceLngRaw === "number" && !Number.isNaN(deviceLngRaw) && deviceLngRaw >= -180 && deviceLngRaw <= 180
+        ? deviceLngRaw
+        : null;
+    const deviceLocationAvailable = deviceLat !== null && deviceLng !== null;
+    const deviceLocationTimestamp = (() => {
+      const ts = device?.location_timestamp;
+      if (ts == null) return null;
+      if (typeof ts === "number" && !Number.isNaN(ts)) {
+        return new Date(ts * 1000).toISOString();
+      }
+      if (typeof ts === "string" && ts.trim() !== "") {
+        const parsed = Date.parse(ts);
+        return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+      }
+      return null;
+    })();
+
+    // Starlink GPS
     const starlinkStatus = device?.starlink_status?.[0];
     const gpsLocation = starlinkStatus?.gpsLocation as Record<string, unknown> | undefined;
     const gpsLla = gpsLocation?.lla as Record<string, unknown> | undefined;
     const starlinkLat = typeof gpsLla?.lat === "number" ? gpsLla.lat : null;
     const starlinkLng = typeof gpsLla?.lon === "number" ? gpsLla.lon : null;
     const starlinkLocationAvailable = starlinkLat !== null && starlinkLng !== null;
-    let lat = starlinkLat;
-    let lng = starlinkLng;
-    let locationFallback = false;
-    const fetchedAt = new Date().toISOString();
     const gpsReportedAt = getStarlinkGpsTimestamp(device);
-    let updatedAt = gpsReportedAt ?? fetchedAt;
-    let timeSource = gpsReportedAt
-      ? "starlink_gps"
-      : starlinkLocationAvailable
-        ? "starlink_gps_no_time"
-        : "fetched_at";
+
+    // Source selection: USE_DEVICE_GPS=true|1 tries device GPS first, else Starlink-only
+    const useDeviceGps =
+      (Deno.env.get("USE_DEVICE_GPS") ?? "").toLowerCase() === "true" ||
+      Deno.env.get("USE_DEVICE_GPS") === "1";
+
+    let lat: number | null;
+    let lng: number | null;
+    let updatedAt: string;
+    let timeSource: string;
+
+    if (useDeviceGps && deviceLocationAvailable) {
+      lat = deviceLat;
+      lng = deviceLng;
+      updatedAt = deviceLocationTimestamp ?? fetchedAt;
+      timeSource = deviceLocationTimestamp ? "device_gps" : "device_gps_no_time";
+    } else if (starlinkLocationAvailable) {
+      lat = starlinkLat;
+      lng = starlinkLng;
+      updatedAt = gpsReportedAt ?? fetchedAt;
+      timeSource = gpsReportedAt ? "starlink_gps" : "starlink_gps_no_time";
+    } else {
+      lat = null;
+      lng = null;
+      updatedAt = fetchedAt;
+      timeSource = "fetched_at";
+    }
+
+    let locationFallback = false;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -201,14 +248,15 @@ Deno.serve(async (req) => {
         .limit(1);
       const fallback = lastPoint?.[0];
 
-      if (starlinkLocationAvailable && lat !== null && lng !== null) {
+      if (lat !== null && lng !== null) {
         let recordedAt = updatedAt ?? fetchedAt;
         if (fallback?.recorded_at) {
           const lastTime = Date.parse(fallback.recorded_at);
           const nextTime = Date.parse(recordedAt);
           if (!Number.isNaN(lastTime) && !Number.isNaN(nextTime) && nextTime <= lastTime) {
             recordedAt = fetchedAt;
-            timeSource = gpsReportedAt ? "starlink_gps_stale" : "fetched_at";
+            const hasGpsTime = timeSource === "device_gps" || timeSource === "starlink_gps";
+            timeSource = hasGpsTime ? timeSource.replace("_gps", "_gps_stale") : "fetched_at";
           }
         }
         await supabase.from("gps_points").upsert(

@@ -269,7 +269,10 @@
       }
 
       function formatUpdatedAt(isoString, timeSource) {
-        const gpsAgeUnknown = timeSource === "starlink_gps_no_time" || timeSource === "fetched_at";
+        const gpsAgeUnknown =
+          timeSource === "starlink_gps_no_time" ||
+          timeSource === "device_gps_no_time" ||
+          timeSource === "fetched_at";
         if (!isoString) {
           return {
             label: "Updated: unknown",
