@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
       peplinkTrack = allPoints.sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
     }
 
-    // Device GPS (InControl – matches Peplink Mars)
+    // Device GPS (InControl – matches Peplink Mars; may be spoofed)
     const deviceLatRaw = device?.latitude;
     const deviceLngRaw = device?.longitude;
     const deviceLat =
@@ -249,7 +249,7 @@ Deno.serve(async (req) => {
       return null;
     })();
 
-    // Starlink GPS
+    // Starlink GPS (priority 1 – trusted)
     const starlinkStatus = device?.starlink_status?.[0];
     const gpsLocation = starlinkStatus?.gpsLocation as Record<string, unknown> | undefined;
     const gpsLla = gpsLocation?.lla as Record<string, unknown> | undefined;
@@ -258,26 +258,25 @@ Deno.serve(async (req) => {
     const starlinkLocationAvailable = starlinkLat !== null && starlinkLng !== null;
     const gpsReportedAt = getStarlinkGpsTimestamp(device);
 
-    // Source selection: USE_DEVICE_GPS defaults to true to match Peplink dashboard
-    const useDeviceGpsEnv = Deno.env.get("USE_DEVICE_GPS") ?? "true";
-    const useDeviceGps =
-      useDeviceGpsEnv.toLowerCase() === "true" || useDeviceGpsEnv === "1";
-
+    // Source selection: Starlink first, device GPS fallback (device may be spoofed)
     let lat: number | null;
     let lng: number | null;
     let updatedAt: string;
     let timeSource: string;
+    let gpsSource: "starlink" | "device" | null = null;
 
-    if (useDeviceGps && deviceLocationAvailable) {
-      lat = deviceLat;
-      lng = deviceLng;
-      updatedAt = deviceLocationTimestamp ?? fetchedAt;
-      timeSource = deviceLocationTimestamp ? "device_gps" : "device_gps_no_time";
-    } else if (starlinkLocationAvailable) {
+    if (starlinkLocationAvailable) {
       lat = starlinkLat;
       lng = starlinkLng;
       updatedAt = gpsReportedAt ?? fetchedAt;
       timeSource = gpsReportedAt ? "starlink_gps" : "starlink_gps_no_time";
+      gpsSource = "starlink";
+    } else if (deviceLocationAvailable) {
+      lat = deviceLat;
+      lng = deviceLng;
+      updatedAt = deviceLocationTimestamp ?? fetchedAt;
+      timeSource = deviceLocationTimestamp ? "device_gps" : "device_gps_no_time";
+      gpsSource = "device";
     } else {
       lat = null;
       lng = null;
@@ -296,7 +295,7 @@ Deno.serve(async (req) => {
 
       const { data: lastPoint } = await supabase
         .from("gps_points")
-        .select("lat,lng,recorded_at")
+        .select("lat,lng,recorded_at,time_source")
         .eq("device_id", DEVICE_ID)
         .order("recorded_at", { ascending: false })
         .limit(1);
@@ -309,7 +308,7 @@ Deno.serve(async (req) => {
           const nextTime = Date.parse(recordedAt);
           if (!Number.isNaN(lastTime) && !Number.isNaN(nextTime) && nextTime <= lastTime) {
             recordedAt = fetchedAt;
-            const hasGpsTime = timeSource === "device_gps" || timeSource === "starlink_gps";
+            const hasGpsTime = timeSource === "starlink_gps" || timeSource === "device_gps";
             timeSource = hasGpsTime ? timeSource.replace("_gps", "_gps_stale") : "fetched_at";
           }
         }
@@ -331,6 +330,9 @@ Deno.serve(async (req) => {
         updatedAt = fallback.recorded_at;
         timeSource = "gps_points_fallback";
         locationFallback = true;
+        // Derive gps_source from cached point's original source
+        const src = typeof fallback.time_source === "string" ? fallback.time_source : "";
+        gpsSource = src.startsWith("starlink") ? "starlink" : src.startsWith("device") ? "device" : null;
       }
 
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -458,7 +460,7 @@ Deno.serve(async (req) => {
 
     const locationAvailable = lat !== null && lng !== null;
 
-    return jsonResponse({
+    const response: Record<string, unknown> = {
       device_id: DEVICE_ID,
       device_name: device?.name ?? null,
       lat,
@@ -473,7 +475,11 @@ Deno.serve(async (req) => {
       speed_source: speedSource,
       track,
       wan_status: wanStatus,
-    });
+    };
+    if (gpsSource != null) {
+      response.gps_source = gpsSource;
+    }
+    return jsonResponse(response);
   } catch (error) {
     return jsonResponse({ error: "Unexpected error.", details: String(error) }, 500);
   }

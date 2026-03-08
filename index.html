@@ -124,6 +124,27 @@
         color: #fca5a5;
       }
 
+      .gps-source-badge {
+        display: inline-block;
+        margin-top: 8px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .gps-source-starlink {
+        background: rgba(34, 197, 94, 0.2);
+        border: 1px solid rgba(34, 197, 94, 0.5);
+        color: #4ade80;
+      }
+
+      .gps-source-device {
+        background: rgba(245, 158, 11, 0.2);
+        border: 1px solid rgba(245, 158, 11, 0.6);
+        color: #fbbf24;
+      }
+
       .auth-overlay {
         position: fixed;
         inset: 0;
@@ -197,6 +218,7 @@
     <div class="panel">
       <h1>Peplink GPS Location</h1>
       <div id="device-name">Device: —</div>
+      <div id="gps-source-badge" class="gps-source-badge" style="display: none;"></div>
       <div id="coords">Location: —</div>
       <div id="speed">Speed: —</div>
       <div id="updated">Updated: —</div>
@@ -223,6 +245,7 @@
 
       const statusEl = document.getElementById("status");
       const deviceNameEl = document.getElementById("device-name");
+      const gpsSourceBadgeEl = document.getElementById("gps-source-badge");
       const coordsEl = document.getElementById("coords");
       const speedEl = document.getElementById("speed");
       const updatedEl = document.getElementById("updated");
@@ -351,6 +374,15 @@
           lastUpdatedAt = data.updated_at;
           lastTimeSource = data.time_source;
           lastSourceLabel = sourceLabel;
+
+          const gpsSource = data.gps_source || (data.time_source && data.time_source.startsWith("starlink") ? "starlink" : data.time_source && data.time_source.startsWith("device") ? "device" : null);
+          if (data.location_available && gpsSource) {
+            gpsSourceBadgeEl.style.display = "block";
+            gpsSourceBadgeEl.className = `gps-source-badge gps-source-${gpsSource}`;
+            gpsSourceBadgeEl.textContent = gpsSource === "starlink" ? "Starlink GPS (trusted)" : "Device GPS – may be spoofed";
+          } else {
+            gpsSourceBadgeEl.style.display = "none";
+          }
           const isStale = typeof updatedInfo.ageSeconds === "number"
             ? updatedInfo.ageSeconds > 20
             : false;
@@ -361,6 +393,7 @@
           updatedEl.innerHTML = `${updatedInfo.label}${updatedInfo.age ? `<br />${updatedInfo.age}` : ""}${sourceLabel ? `<br />${sourceLabel}` : ""}`;
 
           if (!data.location_available || data.lat == null || data.lng == null) {
+            gpsSourceBadgeEl.style.display = "none";
             statusEl.textContent = "No GPS fix available yet.";
             coordsEl.textContent = "Location: —";
             speedEl.textContent = "Speed: —";
